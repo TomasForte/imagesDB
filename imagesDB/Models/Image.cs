@@ -9,6 +9,7 @@ namespace Models
         public int Run { get; }
         public string ImageUrl { get; }
         public string? ImagePath { get; private set; }
+        public string? ImageHash { get; private set; }
         public string Creator { get; }
         public string Source { get; }
 
@@ -28,6 +29,11 @@ namespace Models
         public void AddPath(string imagePath)
         {
             ImagePath = imagePath;
+        }
+
+        public void AddImageHash(string imageHash)
+        {
+            ImageHash = imageHash;
         }
 
     }

@@ -118,6 +118,7 @@ namespace MyConsoleApp
                         run INTEGER,
                         image_path TEXT UNIQUE,
                         image_url TEXT UNIQUE,
+                        image_hash TEXT,
                         creator TEXT,
                         source TEXT
                     );
@@ -163,7 +164,17 @@ namespace MyConsoleApp
                                 Console.WriteLine($"Image  {image.ImageUrl} could not be downloaded");
                                 Environment.Exit(1);
                             }
-                            
+
+                            // Images Hash
+                            byte[] hashBytes;
+                            using var sha256 = SHA256.Create();
+                            {
+                                hashBytes = sha256.ComputeHash(imageBytes);
+                            }
+                            string hashHexString = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+                            image.AddImageHash(hashHexString);
+
+
                             // get file extension of the image
                             string extension = contentType switch
                             {
@@ -184,13 +195,14 @@ namespace MyConsoleApp
                             var addImageCommand = connection.CreateCommand();
                             addImageCommand.CommandText = @"
                                 INSERT INTO images
-                                (category, challenge, difficulty, run, image_url,   creator, source)
+                                (category, challenge, difficulty, run, image_url, image_hash, creator, source)
                                 VALUES (
                                     @category,
                                     @challenge,
                                     @difficulty,
                                     @run,
                                     @image_url,
+                                    @image_hash,
                                     @creator,
                                     @source
                                 )
@@ -200,6 +212,7 @@ namespace MyConsoleApp
                             addImageCommand.Parameters.AddWithValue("@difficulty", image.Difficulty);
                             addImageCommand.Parameters.AddWithValue("@run", image.Run);
                             addImageCommand.Parameters.AddWithValue("@image_url", image.ImageUrl);
+                            addImageCommand.Parameters.AddWithValue("@image_hash", image.ImageHash);
                             addImageCommand.Parameters.AddWithValue("@creator", image.Creator);
                             addImageCommand.Parameters.AddWithValue("@source", image.Source);
 
