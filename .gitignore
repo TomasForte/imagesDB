@@ -5,6 +5,7 @@
 
 # I added these
 images/
+appsettings.json
 
 # dotenv files
 .env

@@ -6,6 +6,7 @@ using Models;
 using System.Security.Cryptography;
 using System.Text;
 using System.Linq.Expressions;
+using Microsoft.Extensions.Configuration;
 
 namespace MyConsoleApp
 {
@@ -50,7 +51,13 @@ namespace MyConsoleApp
             string htmlContent = "";
             try
             {
-                string url = "https://anime.jhiday.net/hof/badges";
+                var config = new ConfigurationBuilder()
+                    .SetBasePath(Directory.GetCurrentDirectory())
+                    .AddJsonFile("appsettings.json", optional: false)
+                    .Build();
+
+                string url = config["Scraping:BadgeUrl"] ?? throw new InvalidOperationException("Badge URL not found.");
+
                 HttpResponseMessage response = await client.GetAsync(url);
                 response.EnsureSuccessStatusCode(); // Throws if not 200–299
 
