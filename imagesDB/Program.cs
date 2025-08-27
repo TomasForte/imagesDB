@@ -8,6 +8,7 @@ using System.Text;
 using System.Linq.Expressions;
 using Microsoft.Extensions.Configuration;
 
+
 namespace MyConsoleApp
 {
 
@@ -28,9 +29,16 @@ namespace MyConsoleApp
         static async Task Main(string[] args)
         {
             List<Image> images = new List<Image>();
+
+
             string connectionString = "Data Source=images.db";
+            ImageDb dbHandler = new ImageDb(connectionString);
+            dbHandler.InitializeDatabase();
+
+
             var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
 
+            // start in the folder with the exe and go down until i find the dir with the solution file
             while (dir != null)
             {
                 var slnFile = dir.GetFiles("*.sln").FirstOrDefault();
@@ -111,177 +119,115 @@ namespace MyConsoleApp
             }
 
 
-            using (var connection = new SqliteConnection(connectionString))
+
+            /*-----------------------TODO ----------------------------------------*/
+            /*To prevent having to insert and then remove imagens from db if sth fails
+            I should make a transation so that if sth fails i roll the entire process back*/
+
+            foreach (Image image in images)
             {
-                connection.Open();
-                var createTableCommand = connection.CreateCommand();
 
-                createTableCommand.CommandText = @"
-                    CREATE TABLE IF NOT EXISTS images (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        category TEXT NOT NULL,
-                        challenge TEXT NOT NULL,
-                        difficulty TEXT,
-                        run INTEGER,
-                        image_path TEXT UNIQUE,
-                        image_url TEXT UNIQUE,
-                        image_hash TEXT,
-                        creator TEXT,
-                        source TEXT
-                    );
-                ";
-                createTableCommand.ExecuteNonQuery();
-            
-                foreach (Image image in images)
+                // if image not in db download it and insert path into db
+                if (!dbHandler.ImageExists(image.ImageUrl))
                 {
-                    // check if image is already in db
-                    var ImageExistCommand = connection.CreateCommand();
-                    ImageExistCommand.CommandText = @"
-                        SELECT * FROM images
-                        WHERE image_url = @imageUrl
-                    ";
-                    ImageExistCommand.Parameters.AddWithValue("@imageUrl", image.ImageUrl);
+                    // define dir where image will be stored
+                    string imageDir = Path.Combine(dir.FullName, "Images", SanitizeFileName(image.Category), SanitizeFileName(image.Challenge));
+                    Directory.CreateDirectory(imageDir);
 
 
-
-                    using (var reader = ImageExistCommand.ExecuteReader())
+                    // request imageurl
+                    byte[] imageBytes = Array.Empty<byte>();
+                    string extension = ".bin";
+                    try
                     {
-                        // if image not in db download it and insert path into db
-                        if (!reader.HasRows)
+                        HttpResponseMessage response = await client.GetAsync(image.ImageUrl);
+                        response.EnsureSuccessStatusCode(); // Throws if not 200–299
+
+                        imageBytes = await response.Content.ReadAsByteArrayAsync();
+                       string  contentType = response.Content.Headers.ContentType?.MediaType ?? "";
+
+                        // get file extension of the image
+                        extension = contentType switch
                         {
-                            // define dir when image will be stored
-                            string imageDir = Path.Combine(dir.FullName, "Images", SanitizeFileName(image.Category), SanitizeFileName(image.Challenge));
-                            Directory.CreateDirectory(imageDir);
+                            "image/jpeg" => ".jpg",
+                            "image/png" => ".png",
+                            "image/gif" => ".gif",
+                            "image/webp" => ".webp",
+                            _ => ".bin" // fallback
+                        };
 
-
-                            // request imageurl
-                            byte[] imageBytes = Array.Empty<byte>();;
-                            string contentType = "application/octet-stream";
-                            try
-                            {
-                                HttpResponseMessage response = await client.GetAsync(image.ImageUrl);
-                                response.EnsureSuccessStatusCode(); // Throws if not 200–299
-
-                                imageBytes =  await response.Content.ReadAsByteArrayAsync();
-                                contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
-                            }
-                            catch (HttpRequestException e)
-                            {
-                                Console.WriteLine($"Request error: {e.Message}");
-                                Console.WriteLine($"Image  {image.ImageUrl} could not be downloaded");
-                                Environment.Exit(1);
-                            }
-
-                            // Images Hash
-                            byte[] hashBytes;
-                            using var sha256 = SHA256.Create();
-                            {
-                                hashBytes = sha256.ComputeHash(imageBytes);
-                            }
-                            string hashHexString = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
-                            image.AddImageHash(hashHexString);
-
-
-                            // get file extension of the image
-                            string extension = contentType switch
-                            {
-                                "image/jpeg" => ".jpg",
-                                "image/png" => ".png",
-                                "image/gif" => ".gif",
-                                "image/webp" => ".webp",
-                                _ => ".bin" // fallback
-                            };
-
-                            if (extension == ".bin")
-                            {
-                                Console.WriteLine("file extension not found");
-                                return;
-                            }
-
-                            // insert image to DB
-                            var addImageCommand = connection.CreateCommand();
-                            addImageCommand.CommandText = @"
-                                INSERT INTO images
-                                (category, challenge, difficulty, run, image_url, image_hash, creator, source)
-                                VALUES (
-                                    @category,
-                                    @challenge,
-                                    @difficulty,
-                                    @run,
-                                    @image_url,
-                                    @image_hash,
-                                    @creator,
-                                    @source
-                                )
-                            ;";
-                            addImageCommand.Parameters.AddWithValue("@category", image.Category);
-                            addImageCommand.Parameters.AddWithValue("@challenge", image.Challenge);
-                            addImageCommand.Parameters.AddWithValue("@difficulty", image.Difficulty);
-                            addImageCommand.Parameters.AddWithValue("@run", image.Run);
-                            addImageCommand.Parameters.AddWithValue("@image_url", image.ImageUrl);
-                            addImageCommand.Parameters.AddWithValue("@image_hash", image.ImageHash);
-                            addImageCommand.Parameters.AddWithValue("@creator", image.Creator);
-                            addImageCommand.Parameters.AddWithValue("@source", image.Source);
-
-
-                            addImageCommand.ExecuteNonQuery();
-
-                            // get id of the last image
-                            var lastIdCommand = connection.CreateCommand();
-                            lastIdCommand.CommandText = "SELECT last_insert_rowid()";
-                            long lastId = (long)lastIdCommand.ExecuteScalar();
-
-                            // define imageName and imagePath to store the image
-                            string imageName = SanitizeFileName($@"{lastId}_{image.Challenge}_{image.Difficulty}_{image.Run}{extension}");
-                            string imagePath = Path.Combine(imageDir, imageName);
-
-                            image.AddPath(imagePath);
-
-                            try
-                            {
-                                await File.WriteAllBytesAsync(imagePath, imageBytes);
-                            }
-                            catch
-                            {
-
-                                // remove image from db if storing image in disk fails
-                                var deleteImageCommand = connection.CreateCommand();
-                                deleteImageCommand.CommandText = @"
-                                    DELETE FROM images WHERE image_url = @imageUrl
-                                ;";
-                                deleteImageCommand.Parameters.AddWithValue("@image_url", image.ImageUrl);
-                                deleteImageCommand.ExecuteNonQuery();
-                                return;
-                            }
-
-                            // add the imagePath to the database
-                            var updateImagePathCommand = connection.CreateCommand();
-                            updateImagePathCommand.CommandText = @"
-                                    UPDATE images SET image_path = @image_path
-                                    WHERE image_url = @image_url 
-                                ;";
-                            updateImagePathCommand.Parameters.AddWithValue("@image_path", image.ImagePath);
-                            updateImagePathCommand.Parameters.AddWithValue("@image_url", image.ImageUrl);
-
-
-                            if (!(updateImagePathCommand.ExecuteNonQuery() > 0))
-                            {
-                                // delete image from db as well as the stored file if the insert of imagePath to db fails
-                                File.Delete(imagePath);
-                                var deleteImageCommand = connection.CreateCommand();
-                                deleteImageCommand.CommandText = @"
-                                    DELETE FROM images WHERE image_url = @imageUrl
-                                ;";
-                                deleteImageCommand.Parameters.AddWithValue("@image_url", image.ImageUrl);
-                                deleteImageCommand.ExecuteNonQuery();
-
-                                return;
-                            }
-
+                        if (extension == ".bin")
+                        {
+                            Console.WriteLine("file extension not found");
+                            return;
                         }
+                    }
+                    catch (HttpRequestException e)
+                    {
+                        Console.WriteLine($"Request error: {e.Message}");
+                        Console.WriteLine($"Image  {image.ImageUrl} could not be downloaded");
+                        Environment.Exit(1);
+                    }
+
+                    // Images Hash
+                    byte[] hashBytes;
+                    using var sha256 = SHA256.Create();
+                    {
+                        hashBytes = sha256.ComputeHash(imageBytes);
+                    }
+                    string hashHexString = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+                    image.AddImageHash(hashHexString);
+
+
+
+
+                    // insert image to DB
+                    try
+                    {
+                        dbHandler.InsertImage(image);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to add Image to db: {image.ImageUrl} — {ex.Message}");
+                        return;
+                    }
+
+                    // define imageName and imagePath to store the image
+                    int lastId = dbHandler.LastImageId();
+                    string imageName = SanitizeFileName($@"{lastId}_{image.Challenge}_{image.Difficulty}_{image.Run}{extension}");
+                    string imagePath = Path.Combine(imageDir, imageName);
+
+
+                    image.AddPath(imagePath);
+
+
+
+                    try
+                    {
+                        await File.WriteAllBytesAsync(imagePath, imageBytes);
+                    }
+                    catch (Exception ex)
+                    {
+
+                        // remove image from db if storing image in disk fails
+                        dbHandler.DeleteImage(image.ImageUrl);
+                        Console.WriteLine($"Failed to write image to disk: {imagePath} — {ex.Message}");
+                        return;
+                    }
+
+                    // add the imagePath to the database
+                    if (!dbHandler.TryUpdateImagePath(image.ImageUrl, imagePath))
+                    {
+                        // delete image from db as well as the stored file if the insert of imagePath to db fails
+                        File.Delete(imagePath);
+                        // remove image from db if storing image in disk fails
+                        dbHandler.DeleteImage(image.ImageUrl);
+
+                        return;
                     }
                 }
             }
         }
+        
     }
 }
