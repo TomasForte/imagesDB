@@ -1,13 +1,18 @@
+using System.Numerics;
 using Microsoft.Data.Sqlite;
+using System.Data;
+using System.Data.SqlClient;
 using Models;
 
 public class ImageDb
 {
     private readonly string _connectionString;
+    private readonly SqliteConnection _connection;
 
     public ImageDb(string connectionString)
     {
         _connectionString = connectionString;
+        _connection = new SqliteConnection(_connectionString);
     }
 
     public void InitializeDatabase()
@@ -18,20 +23,44 @@ public class ImageDb
         using (var command = connection.CreateCommand())
         {
             command.CommandText = @"
-                CREATE TABLE IF NOT EXISTS images (
+                CREATE TABLE IF NOT EXISTS challenges (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     category TEXT NOT NULL,
-                    challenge TEXT NOT NULL,
+                    challengeName TEXT NOT NULL UNIQUE,
+                    catboxAlbum TEXT UNIQUE
+                );
+            ";
+            command.ExecuteNonQuery();
+        }
+
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    challenge_id INTEGER,
                     difficulty TEXT,
                     run INTEGER,
                     image_path TEXT UNIQUE,
                     image_url TEXT UNIQUE,
                     creator TEXT,
-                    source TEXT
+                    source TEXT,
+                    image_hash TEXT,
+                    FOREIGN KEY (challenge_id) REFERENCES challenges(id)
+                    ON DELETE CASCADE
                 );
             ";
             command.ExecuteNonQuery();
         }
+
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "PRAGMA foreign_keys = ON;";
+            command.ExecuteNonQuery();
+        }
+
     }
 
     public bool ImageExists(string imageUrl)
@@ -48,9 +77,7 @@ public class ImageDb
                 using var reader = command.ExecuteReader();
                 return reader.HasRows;
             }
-
         }
-
     }
 
     public void InsertImage(Image image)
@@ -59,14 +86,50 @@ public class ImageDb
         {
             connection.Open();
 
+            int challengeId;
+            using (var checkCommand = connection.CreateCommand())
+            {
+
+                checkCommand.CommandText = "SELECT id FROM challenges WHERE challengeName = @challenge";
+                checkCommand.Parameters.AddWithValue("@challenge", image.Challenge);
+
+                var result = checkCommand.ExecuteScalar();
+
+                if (result != null)
+                {
+                    challengeId = Convert.ToInt32(result);
+                }
+                else
+                {
+                    using (var insertChallenge = connection.CreateCommand())
+                    {
+                        insertChallenge.CommandText = @"
+                            INSERT INTO challenges (category, challengeName)
+                            VALUES (@category, @challenge);
+                        ";
+                        insertChallenge.Parameters.AddWithValue("@category", image.Category);
+                        insertChallenge.Parameters.AddWithValue("@challenge", image.Challenge);
+                        insertChallenge.ExecuteNonQuery();
+                    }
+
+                    using (var getIdCommand = connection.CreateCommand())
+                    {
+                        getIdCommand.CommandText = "SELECT last_insert_rowid();";
+                        challengeId = Convert.ToInt32(getIdCommand.ExecuteScalar());
+                    }
+                }
+
+            }
+
+
+
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = @"
                 INSERT INTO images
-                (category, challenge, difficulty, run, image_url, image_hash, creator, source)
+                (challenge_id, difficulty, run, image_url, image_hash, creator, source)
                 VALUES (
-                    @category,
-                    @challenge,
+                    @challengeId,
                     @difficulty,
                     @run,
                     @image_url,
@@ -75,33 +138,33 @@ public class ImageDb
                     @source
                 )
             ;";
-            command.Parameters.AddWithValue("@category", image.Category);
-            command.Parameters.AddWithValue("@challenge", image.Challenge);
-            command.Parameters.AddWithValue("@difficulty", image.Difficulty);
-            command.Parameters.AddWithValue("@run", image.Run);
-            command.Parameters.AddWithValue("@image_url", image.ImageUrl);
-            command.Parameters.AddWithValue("@image_hash", image.ImageHash);
-            command.Parameters.AddWithValue("@creator", image.Creator);
-            command.Parameters.AddWithValue("@source", image.Source);
+                command.Parameters.AddWithValue("@challengeId", challengeId);
+                command.Parameters.AddWithValue("@difficulty", image.Difficulty);
+                command.Parameters.AddWithValue("@run", image.Run);
+                command.Parameters.AddWithValue("@image_url", image.ImageUrl);
+                command.Parameters.AddWithValue("@image_hash", image.ImageHash);
+                command.Parameters.AddWithValue("@creator", image.Creator);
+                command.Parameters.AddWithValue("@source", image.Source);
 
 
-            command.ExecuteNonQuery();
+                command.ExecuteNonQuery();
 
             }
 
-            
+
         }
-   
+
     }
 
     public int LastImageId()
     {
         using (var connection = new SqliteConnection(_connectionString))
         {
+            connection.Open();
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = "SELECT last_insert_rowid()";
-                return (int)command.ExecuteScalar();
+                return Convert.ToInt32(command.ExecuteScalar());
             }
 
         }
@@ -144,5 +207,34 @@ public class ImageDb
 
         }
 
+    }
+    public record Challenge(int Id, string Category, string ChallengeName);
+    public HashSet<Challenge> GetNewChallenges()
+    {
+        HashSet<Challenge> newChallenges = new HashSet<Challenge>();
+
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, Category, Challenge FROM challenges WHERE catboxAlbum IS NULL";
+
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        newChallenges.Add(new Challenge(
+                            reader.GetInt32(0),
+                            reader.GetString(1),
+                            reader.GetString(2)
+                        ));
+                    }
+                }
+            }
+
+        }
+        return newChallenges;
     }
 }
