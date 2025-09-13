@@ -6,6 +6,8 @@
 # I added these
 images/
 appsettings.json
+manualdownload.json
+*.ods
 
 # dotenv files
 .env

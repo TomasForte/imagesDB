@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using System.Data;
 using System.Data.SqlClient;
 using Models;
+using System.Collections;
 
 public class ImageDb
 {
@@ -47,6 +48,7 @@ public class ImageDb
                     creator TEXT,
                     source TEXT,
                     image_hash TEXT,
+                    catboxUrl TEXT,
                     FOREIGN KEY (challenge_id) REFERENCES challenges(id)
                     ON DELETE CASCADE
                 );
@@ -208,7 +210,7 @@ public class ImageDb
         }
 
     }
-    public record Challenge(int Id, string Category, string ChallengeName);
+
     public HashSet<Challenge> GetNewChallenges()
     {
         HashSet<Challenge> newChallenges = new HashSet<Challenge>();
@@ -219,7 +221,7 @@ public class ImageDb
 
             using (SqliteCommand command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Id, Category, Challenge FROM challenges WHERE catboxAlbum IS NULL";
+                command.CommandText = "SELECT id, category, challengeName FROM challenges WHERE catboxAlbum IS NULL";
 
                 using (SqliteDataReader reader = command.ExecuteReader())
                 {
@@ -236,5 +238,111 @@ public class ImageDb
 
         }
         return newChallenges;
+    }
+
+
+    public void UpdateChallengeAlbum(int challengeId, string albumCode)
+    {
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE challenges SET catboxAlbum = @albumCode WHERE id = @challengeId;";
+                command.Parameters.AddWithValue("@albumCode", albumCode);
+                command.Parameters.AddWithValue("@challengeId", challengeId);
+
+                command.ExecuteNonQuery();
+            }
+        }
+    }
+
+
+    public Dictionary<int, List<Image>> GetNewImages()
+    {
+        Dictionary<int, List<Image>> newImages = new Dictionary<int, List<Image>>();
+
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = @"SELECT id, Challenge_id, image_path 
+                                        FROM images 
+                                        WHERE catboxUrl IS NULL";
+
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    int challengeId;
+                    while (reader.Read())
+                    {
+                        challengeId = reader.GetInt32(1);
+                        newImages.TryAdd(challengeId, new List<Image>());
+                        newImages[challengeId].Add(
+                            new Image(
+                                reader.GetInt32(0),
+                                reader.GetInt32(1),
+                                reader.GetString(2)
+                                )
+                        );
+                    }
+                }
+            }
+
+        }
+        return newImages;
+    }
+
+
+
+    public string GetChallengeAlbum(int challengeId)
+    {
+        string challengeAlbum;
+
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT catboxAlbum FROM challenges WHERE id = @challengeId;";
+                command.Parameters.AddWithValue("@challengeId", challengeId);
+
+                var result = command.ExecuteScalar();
+
+                try
+                {
+                    challengeAlbum = Convert.ToString(result);
+                }
+                catch
+                {
+                    throw;
+                }
+            }
+
+        }
+        return challengeAlbum;
+    }
+
+
+
+
+    public void UpdateImagesCatBoxUrl(Image image)
+    {
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE images SET catboxUrl = @catboxImageUrl WHERE id = @imageId;";
+                command.Parameters.AddWithValue("@imageId", image.Id);
+                command.Parameters.AddWithValue("@catboxImageUrl", image.CatboxUrl);
+
+                command.ExecuteNonQuery();
+            }
+        }
     }
 }
