@@ -34,6 +34,8 @@ namespace MyConsoleApp
 
             string url = config["Scraping:BadgeUrl"] ?? throw new InvalidOperationException("Badge URL not found.");
             string catBoxUserHash = config["Scraping:CatBoxUserHash"] ?? throw new InvalidOperationException("Badge URL not found.");
+            string ImageChestApiToken = config["Scraping:ImageChestApiToken"] ?? throw new InvalidOperationException("ImageChestApiToken not found");
+            string imgbbKey = config["Scraping:imgbbKey"] ?? throw new InvalidOperationException("imgbbKey not found");
             string jsonFile = config["JsonFile"] ?? throw new InvalidOperationException("Json File not found.");
 
 
@@ -54,15 +56,19 @@ namespace MyConsoleApp
             jsonFile = Path.Combine(dir.FullName, jsonFile);
 
             var catboxApi = new CatboxApi(catBoxUserHash);
-            var imageService = new ImageService(dbHandler, catboxApi);
-            
+            var imageChestApi = new ImageChestApi(ImageChestApiToken);
+            var imgbbApi = new ImgbbApi(imgbbKey);
+            var imageService = new ImageService(dbHandler, catboxApi, imageChestApi, imgbbApi);
+
 
             try
             {
-                await imageService.DownloadNewImages(url);
-                await imageService.DownloadNewImagesFromJson(jsonFile);
-                await imageService.LoadImagesToCatbox();
-                
+                //await imageService.DownloadNewImages(url);
+                //await imageService.DownloadNewImagesFromJson(jsonFile);
+                //await imageService.LoadImagesToCatbox();
+                await imageService.LoadImagesToImageChest();
+                //await imageService.LoadImagesToImgbb();
+
             }
             catch (Exception ex)
             {

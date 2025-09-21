@@ -7,11 +7,15 @@ public class ImageService
 {
     private readonly ImageDb _dbHandler;
     private readonly CatboxApi _catboxApi;
+    private readonly ImageChestApi _imageChestApi;
+    private readonly ImgbbApi _imgbbApi;
 
-    public ImageService(ImageDb dbHandler, CatboxApi catboxApi)
+    public ImageService(ImageDb dbHandler, CatboxApi catboxApi, ImageChestApi imageChestApi, ImgbbApi imgbbApi)
     {
         _dbHandler = dbHandler;
         _catboxApi = catboxApi;
+        _imageChestApi = imageChestApi;
+        _imgbbApi = imgbbApi;
     }
 
 
@@ -125,15 +129,39 @@ public class ImageService
         if (!TryUpdateImagePath(image.ImageUrl, imagePath)) return;
 
     }
+    
+    public async Task LoadImagesToImgbb()
+    {
+
+        Dictionary<int, List<Image>> newImages;
+
+        newImages = _dbHandler.ImagesNotInImgbb();
+        string challengeAlbum;
+        string imageUrl;
+
+        foreach (int challengeId in newImages.Keys)
+        {
+
+            challengeAlbum = _dbHandler.GetChallengeCatboxAlbum(challengeId);
+            Console.WriteLine($"Loading images to album {challengeId})");
+            // Load images to catbox and add url to image property
+            foreach (Image image in newImages[challengeId])
+            {
+                imageUrl = await _imgbbApi.UploadImage(image);
+
+                _dbHandler.UpdateImageImgbbUrl(image, imageUrl);
+                await  Task.Delay(2000);
+            }
+        }
+    }
+
 
 
     
-
-
-
+    // this is only for catbox
     public async Task CreateAlbumForNewChallenge()
     {
-        var newChallenges = _dbHandler.GetNewChallenges();
+        var newChallenges = _dbHandler.GetChallengesWithoutCatboxAlbum();
         foreach (var challenge in newChallenges)
         {
             string result = "";
@@ -156,7 +184,7 @@ public class ImageService
             {
                 string[] parts = result.Split('/');
                 albumCode = parts[^1];
-                _dbHandler.UpdateChallengeAlbum(challenge.Id, albumCode);
+                _dbHandler.UpdateChallengeCatboxAlbum(challenge.Id, albumCode);
             }
         }
     }
@@ -167,13 +195,13 @@ public class ImageService
 
         Dictionary<int, List<Image>> newImages;
 
-        newImages = _dbHandler.GetNewImages();
+        newImages = _dbHandler.ImagesNotInCatbox();
         string challengeAlbum;
 
         foreach (int challengeId in newImages.Keys)
         {
 
-            challengeAlbum = _dbHandler.GetChallengeAlbum(challengeId);
+            challengeAlbum = _dbHandler.GetChallengeCatboxAlbum(challengeId);
             Console.WriteLine($"Loading images to album {challengeId} - {challengeAlbum}");
             // Load images to catbox and add url to image property
             await _catboxApi.LoadImages(newImages[challengeId]);
@@ -187,6 +215,7 @@ public class ImageService
             await _catboxApi.AddImagesToAlbum(newImages[challengeId], challengeAlbum);
         }
     }
+
     
 
     public string CreateImageDirectory(string BaseDirectory, Image image)
@@ -196,6 +225,75 @@ public class ImageService
         Directory.CreateDirectory(imageDir);
         return imageDir;
     }
+
+    
+    public async Task DeleteImageChestImages()
+    {
+        List<Image> ImagesUploadedToImageChest;
+
+        ImagesUploadedToImageChest = _dbHandler.GetImagesInImageChest();
+        string challengePost;
+        string challengeTitle;
+
+        foreach (Image image in ImagesUploadedToImageChest)
+        {
+
+            Uri uri = new Uri(image.ImageChestUrl);
+            string fileName = Path.GetFileName(uri.AbsolutePath);
+            string id = fileName.Split('.')[0];
+
+            await _imageChestApi.DeleteFile(id);
+            Thread.Sleep(1000);
+
+        }
+    }
+
+
+    public async Task LoadImagesToImageChest()
+    {
+        Dictionary<int, List<Image>> newImages;
+
+        newImages = _dbHandler.ImagesNotInImageChest();
+        string challengePost;
+        string challengeTitle;
+
+        foreach (int challengeId in newImages.Keys)
+        {
+            var startTime = DateTime.UtcNow;
+            challengePost = _dbHandler.GetChallengeImageChestPost(challengeId);
+            Console.WriteLine($"Loading images to album {challengeId}");
+            challengeTitle = _dbHandler.GetChallengeTitle(challengeId);
+
+            foreach (Image image in newImages[challengeId])
+            {
+                using (var imageStream = File.OpenRead(image.ImagePath))
+                {
+                    var elapsed = DateTime.UtcNow - startTime;
+                    var remainingDelay = TimeSpan.FromSeconds(1) - elapsed;
+                    if (remainingDelay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(remainingDelay);
+                    }
+                    var apiUploadResponse = await _imageChestApi.CreatePost(challengeTitle, image, imageStream);
+                    startTime = DateTime.UtcNow;
+
+                    try
+                    {
+                        _dbHandler.UpdateImagesImageChestUrl(image.Id, apiUploadResponse.Images[0].Link, apiUploadResponse.Id);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"⚠️ Failed to update image {image.Id}: {ex.Message}");
+                        await _imageChestApi.DeletePost(apiUploadResponse.Id);
+                    }
+                }
+            }
+
+
+        }
+    }
+
+
 
 
 

@@ -28,7 +28,8 @@ public class ImageDb
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     category TEXT NOT NULL,
                     challengeName TEXT NOT NULL UNIQUE,
-                    catboxAlbum TEXT UNIQUE
+                    catboxAlbum TEXT,
+                    ImageChestPost TEXT
                 );
             ";
             command.ExecuteNonQuery();
@@ -49,6 +50,9 @@ public class ImageDb
                     source TEXT,
                     image_hash TEXT,
                     catboxUrl TEXT,
+                    ImageChestUrl TEXT,
+                    ImageChestPostId TEXT,
+                    ImgbbUrl TEXT,
                     FOREIGN KEY (challenge_id) REFERENCES challenges(id)
                     ON DELETE CASCADE
                 );
@@ -78,6 +82,32 @@ public class ImageDb
 
                 using var reader = command.ExecuteReader();
                 return reader.HasRows;
+            }
+        }
+    }
+
+    public string GetChallengeTitle(int challenge_id)
+    {
+        using (SqliteConnection connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT challengeName FROM challenges WHERE id = @challengeId";
+                command.Parameters.AddWithValue("@challengeId", challenge_id);
+
+                using (var reader = command.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        return reader.GetString(0); // Assumes challengeName is the first column
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException($"No challenge found with ID {challenge_id}.");
+                    }
+                }
             }
         }
     }
@@ -211,7 +241,7 @@ public class ImageDb
 
     }
 
-    public HashSet<Challenge> GetNewChallenges()
+    public HashSet<Challenge> GetChallengesWithoutCatboxAlbum()
     {
         HashSet<Challenge> newChallenges = new HashSet<Challenge>();
 
@@ -241,7 +271,55 @@ public class ImageDb
     }
 
 
-    public void UpdateChallengeAlbum(int challengeId, string albumCode)
+    public HashSet<Challenge> GetChallengesWithoutImageChestPost()
+    {
+        HashSet<Challenge> newChallenges = new HashSet<Challenge>();
+
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT id, category, challengeName FROM challenges WHERE ImageChestPost IS NULL";
+
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        newChallenges.Add(new Challenge(
+                            reader.GetInt32(0),
+                            reader.GetString(1),
+                            reader.GetString(2)
+                        ));
+                    }
+                }
+            }
+
+        }
+        return newChallenges;
+    }
+
+
+    public void UpdateChallengeCatboxAlbum(int challengeId, string PostId)
+    {
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE challenges SET ImageChestPost = @PostId WHERE id = @challengeId;";
+                command.Parameters.AddWithValue("@PostId", PostId);
+                command.Parameters.AddWithValue("@challengeId", challengeId);
+
+                command.ExecuteNonQuery();
+            }
+        }
+    }
+
+
+        public void UpdateChallengeImageChestPost(int challengeId, string albumCode)
     {
         using (var connection = new SqliteConnection(_connectionString))
         {
@@ -257,9 +335,43 @@ public class ImageDb
             }
         }
     }
+    public Dictionary<int, List<Image>> ImagesNotInImgbb()
+    {
+        Dictionary<int, List<Image>> newImages = new Dictionary<int, List<Image>>();
 
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
 
-    public Dictionary<int, List<Image>> GetNewImages()
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = @"SELECT id, Challenge_id, image_path 
+                                        FROM images 
+                                        WHERE ImgbbUrl IS NULL";
+
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    int challengeId;
+                    while (reader.Read())
+                    {
+                        challengeId = reader.GetInt32(1);
+                        newImages.TryAdd(challengeId, new List<Image>());
+                        newImages[challengeId].Add(
+                            new Image(
+                                id: reader.GetInt32(0),
+                                challengeId: reader.GetInt32(1),
+                                imagePath : reader.GetString(2)
+                                )
+                        );
+                    }
+                }
+            }
+
+        }
+        return newImages;
+    }
+
+    public Dictionary<int, List<Image>> ImagesNotInCatbox()
     {
         Dictionary<int, List<Image>> newImages = new Dictionary<int, List<Image>>();
 
@@ -282,9 +394,9 @@ public class ImageDb
                         newImages.TryAdd(challengeId, new List<Image>());
                         newImages[challengeId].Add(
                             new Image(
-                                reader.GetInt32(0),
-                                reader.GetInt32(1),
-                                reader.GetString(2)
+                                id: reader.GetInt32(0),
+                                challengeId: reader.GetInt32(1),
+                                imagePath : reader.GetString(2)
                                 )
                         );
                     }
@@ -295,9 +407,109 @@ public class ImageDb
         return newImages;
     }
 
+    public List<Image> GetImagesInImageChest()
+    {
+        List<Image> ImagesInImageChest = new List<Image>();
+
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = @"SELECT id, Challenge_id, ImageChestUrl 
+                                        FROM images 
+                                        WHERE ImageChestUrl != ''";
+
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    int challengeId;
+                    while (reader.Read())
+                    {
+                        ImagesInImageChest.Add(
+                            new Image(
+                                id: reader.GetInt32(0),
+                                challengeId: reader.GetInt32(1),
+                                imageChestUrl : reader.GetString(2)
+                                )
+                        );
+                    }
+                }
+            }
+
+        }
+        return ImagesInImageChest;
+    }
 
 
-    public string GetChallengeAlbum(int challengeId)
+        public Dictionary<int, List<Image>> ImagesNotInImageChest()
+    {
+        Dictionary<int, List<Image>> newImages = new Dictionary<int, List<Image>>();
+
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = @"SELECT id, Challenge_id, image_path, difficulty, run 
+                                        FROM images 
+                                        WHERE ImageChestUrl IS NULL";
+
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    int challengeId;
+                    while (reader.Read())
+                    {
+                        challengeId = reader.GetInt32(1);
+                        newImages.TryAdd(challengeId, new List<Image>());
+                        newImages[challengeId].Add(
+                            new Image(
+                                id: reader.GetInt32(0),
+                                challengeId: reader.GetInt32(1),
+                                imagePath : reader.GetString(2),
+                                difficulty: reader.GetString(3),
+                                run: reader.GetInt32(4)
+                                )
+                        );
+                    }
+                }
+            }
+
+        }
+        return newImages;
+    }
+    public string GetChallengeImageChestPost(int challengeId)
+    {
+        string ChallengePost;
+
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT ImageChestPost FROM challenges WHERE id = @challengeId;";
+                command.Parameters.AddWithValue("@challengeId", challengeId);
+
+                var result = command.ExecuteScalar();
+
+                try
+                {
+                    ChallengePost = Convert.ToString(result);
+                }
+                catch
+                {
+                    throw;
+                }
+            }
+
+        }
+        return ChallengePost;
+    }
+
+
+    public string GetChallengeCatboxAlbum(int challengeId)
     {
         string challengeAlbum;
 
@@ -327,7 +539,22 @@ public class ImageDb
     }
 
 
+    public void UpdateImageImgbbUrl(Image image, string imgbbUrl)
+    {
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
 
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE images SET ImgbbUrl = @imgbbImageUrl WHERE id = @imageId;";
+                command.Parameters.AddWithValue("@imageId", image.Id);
+                command.Parameters.AddWithValue("@imgbbImageUrl", imgbbUrl);
+
+                command.ExecuteNonQuery();
+            }
+        }
+    }
 
     public void UpdateImagesCatBoxUrl(Image image)
     {
@@ -340,6 +567,29 @@ public class ImageDb
                 command.CommandText = "UPDATE images SET catboxUrl = @catboxImageUrl WHERE id = @imageId;";
                 command.Parameters.AddWithValue("@imageId", image.Id);
                 command.Parameters.AddWithValue("@catboxImageUrl", image.CatboxUrl);
+
+                command.ExecuteNonQuery();
+            }
+        }
+    }
+
+
+    public void UpdateImagesImageChestUrl(int imageId, string imageChestUrl, string imageChestPostId)
+    {
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = $@"UPDATE images 
+                                        SET 
+                                            ImageChestUrl = @ImageChestUrl, 
+                                            ImageChestPostId = @ImageChestPostId
+                                        WHERE id = @imageId;";
+                command.Parameters.AddWithValue("@imageId", imageId);
+                command.Parameters.AddWithValue("@ImageChestUrl", imageChestUrl);
+                command.Parameters.AddWithValue("@ImageChestPostId", imageChestPostId);
 
                 command.ExecuteNonQuery();
             }

@@ -6,7 +6,7 @@ namespace Models
 {
     public class Image
     {
-        public int? Id { get; }
+        public int Id { get; }
         public int ChallengeId { get; }
         public string? Category { get; }
         public string? Challenge { get; }
@@ -18,6 +18,8 @@ namespace Models
         public string? Creator { get; }
         public string? Source { get; }
         public string? CatboxUrl { get; set; }
+        public string? ImageChestUrl { get; set; }
+        public string? ImageChestPost { get; set; }
 
 
 
@@ -36,11 +38,15 @@ namespace Models
             Source = source;
         }
 
-        public Image(int id, int challengeId, string imagePath)
+        public Image(int id, int challengeId, string imagePath = null, string imageChestUrl = null,
+        string difficulty = null, int run = -1)
         {
             Id = id;
-            ImagePath = imagePath;
             ChallengeId = challengeId;
+            ImagePath = imagePath;
+            ImageChestUrl = imageChestUrl;
+            Difficulty = difficulty;
+            Run = run;
         }
 
 
