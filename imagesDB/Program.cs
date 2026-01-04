@@ -63,9 +63,9 @@ namespace MyConsoleApp
 
             try
             {
-                //await imageService.DownloadNewImages(url);
-                //await imageService.DownloadNewImagesFromJson(jsonFile);
-                //await imageService.LoadImagesToCatbox();
+                await imageService.DownloadNewImages(url);
+                await imageService.DownloadNewImagesFromJson(jsonFile);
+                await imageService.LoadImagesToCatbox();
                 await imageService.LoadImagesToImageChest();
                 //await imageService.LoadImagesToImgbb();
 

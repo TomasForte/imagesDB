@@ -309,7 +309,7 @@ public class ImageDb
 
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "UPDATE challenges SET ImageChestPost = @PostId WHERE id = @challengeId;";
+                command.CommandText = "UPDATE challenges SET catboxAlbum = @PostId WHERE id = @challengeId;";
                 command.Parameters.AddWithValue("@PostId", PostId);
                 command.Parameters.AddWithValue("@challengeId", challengeId);
 
@@ -327,7 +327,7 @@ public class ImageDb
 
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "UPDATE challenges SET catboxAlbum = @albumCode WHERE id = @challengeId;";
+                command.CommandText = "UPDATE challenges SET ImageChestPost = @albumCode WHERE id = @challengeId;";
                 command.Parameters.AddWithValue("@albumCode", albumCode);
                 command.Parameters.AddWithValue("@challengeId", challengeId);
 
