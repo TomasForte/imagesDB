@@ -28,7 +28,8 @@ namespace MyConsoleApp
                 .AddJsonFile("appsettings.json", optional: false)
                 .Build();
 
-            string connectionString = "Data Source=images.db";
+            string connectionString =
+                "Data Source=/home/tomas/Desktop/Badges/imagesDB/imagesDB/Images/images.db";
             ImageDb dbHandler = new ImageDb(connectionString);
             dbHandler.InitializeDatabase();
 

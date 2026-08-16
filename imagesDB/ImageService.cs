@@ -39,7 +39,7 @@ public class ImageService
         {
 
             // if image in db go to next
-            if (_dbHandler.ImageExists(image.ImageUrl))
+            if (_dbHandler.ImageUrlExists(image.ImageUrl))
             {
                 continue;
             }
@@ -95,7 +95,7 @@ public class ImageService
         {
 
             // if image in db go to next
-            if (_dbHandler.ImageExists(image.ImageUrl))
+            if (_dbHandler.ImageUrlExists(image.ImageUrl))
             {
                 continue;
             }
@@ -113,10 +113,17 @@ public class ImageService
     {
         string imageDir = CreateImageDirectory(baseDir, image);
         var (imageBytes, imageExtension) = await TryDownloadImage(image.ImageUrl);
+
         if (imageBytes == null) return;
 
         string imageHash = Utils.GetImageHash(imageBytes);
         image.AddImageHash(imageHash);
+        
+        if (_dbHandler.ImageExists(image))
+        {
+            //TODO I could update the image_url here
+            return;
+        }
 
         if (!TryInsertImage(image)) return;
 
@@ -125,8 +132,19 @@ public class ImageService
         string imagePath = Path.Combine(imageDir, imageName);
         image.AddPath(imagePath);
 
-        if (!await TryWriteImageToDisk(imagePath, imageBytes, image.ImageUrl)) return;
-        if (!TryUpdateImagePath(image.ImageUrl, imagePath)) return;
+        // ⭐ Update DB BEFORE writing the file
+        if (!TryUpdateImagePath(image.ImageUrl, imagePath))
+        {
+            _dbHandler.DeleteImage(lastId); // optional cleanup
+            return;
+        }
+
+        // ⭐ Now write the file
+        if (!await TryWriteImageToDisk(imagePath, imageBytes, image.ImageUrl))
+        {
+            _dbHandler.DeleteImage(lastId); // optional cleanup
+            return;
+        }
 
     }
     
@@ -196,6 +214,7 @@ public class ImageService
         Dictionary<int, List<Image>> newImages;
 
         newImages = _dbHandler.ImagesNotInCatbox();
+        int totalCount = newImages.Sum(kvp => kvp.Value.Count);
         string challengeAlbum;
 
         foreach (int challengeId in newImages.Keys)
@@ -260,6 +279,7 @@ public class ImageService
         foreach (int challengeId in newImages.Keys)
         {
             var startTime = DateTime.UtcNow;
+            //NOTE: the post is not used because there is a limit for image in post
             challengePost = _dbHandler.GetChallengeImageChestPost(challengeId);
             Console.WriteLine($"Loading images to album {challengeId}");
             challengeTitle = _dbHandler.GetChallengeTitle(challengeId);
@@ -269,7 +289,7 @@ public class ImageService
                 using (var imageStream = File.OpenRead(image.ImagePath))
                 {
                     var elapsed = DateTime.UtcNow - startTime;
-                    var remainingDelay = TimeSpan.FromSeconds(1) - elapsed;
+                    var remainingDelay = TimeSpan.FromSeconds(1.5) - elapsed;
                     if (remainingDelay > TimeSpan.Zero)
                     {
                         await Task.Delay(remainingDelay);

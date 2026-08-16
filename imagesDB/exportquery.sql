@@ -8,7 +8,8 @@ SELECT
 	images.image_url,
 	images.creator,
 	images.source,
-	images.catboxUrl
+	images.catboxUrl,
+    images.ImageChestUrl
 
 FROM images
 INNER JOIN challenges

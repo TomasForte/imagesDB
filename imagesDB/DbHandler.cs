@@ -69,7 +69,7 @@ public class ImageDb
 
     }
 
-    public bool ImageExists(string imageUrl)
+    public bool ImageUrlExists(string imageUrl)
     {
         using (SqliteConnection connection = new SqliteConnection(_connectionString))
         {
@@ -83,6 +83,40 @@ public class ImageDb
                 using var reader = command.ExecuteReader();
                 return reader.HasRows;
             }
+        }
+    }
+
+    public bool ImageExists(Image image)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        // 1. Obter o ID do challenge
+        using var getChallengeCmd = connection.CreateCommand();
+        getChallengeCmd.CommandText =
+            "SELECT id FROM challenges WHERE challengeName = @challenge";
+        getChallengeCmd.Parameters.AddWithValue("@challenge", image.Challenge);
+
+        int challengeId;
+
+        using (var reader = getChallengeCmd.ExecuteReader())
+        {
+            if (!reader.Read())
+                return false; // Challenge não existe
+
+            challengeId = reader.GetInt32(0);
+        }
+
+        // 2. Verificar se a imagem existe
+        using var checkImageCmd = connection.CreateCommand();
+        checkImageCmd.CommandText =
+            "SELECT 1 FROM images WHERE challenge_id = @challengeId AND image_hash = @imageHash";
+        checkImageCmd.Parameters.AddWithValue("@challengeId", challengeId);
+        checkImageCmd.Parameters.AddWithValue("@imageHash", image.ImageHash);
+
+        using (var reader = checkImageCmd.ExecuteReader())
+        {
+            return reader.HasRows;
         }
     }
 
@@ -241,6 +275,24 @@ public class ImageDb
 
     }
 
+    public void DeleteImage(int imageid)
+    {
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "DELETE FROM images WHERE id = @imageId";
+                command.Parameters.AddWithValue("@imageId", imageid);
+
+                command.ExecuteNonQuery();
+            }
+
+        }
+
+    }
+
     public HashSet<Challenge> GetChallengesWithoutCatboxAlbum()
     {
         HashSet<Challenge> newChallenges = new HashSet<Challenge>();
@@ -381,7 +433,7 @@ public class ImageDb
 
             using (SqliteCommand command = connection.CreateCommand())
             {
-                command.CommandText = @"SELECT id, Challenge_id, image_path 
+                command.CommandText = @"SELECT id, Challenge_id, image_path, catboxUrl 
                                         FROM images 
                                         WHERE catboxUrl IS NULL";
 
@@ -399,6 +451,7 @@ public class ImageDb
                                 imagePath : reader.GetString(2)
                                 )
                         );
+
                     }
                 }
             }
